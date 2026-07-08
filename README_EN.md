@@ -1,4 +1,4 @@
-# gen_graphql_python
+# Gen GraphQL Python
 
 Generator for GraphQL types, inputs, and operations from Python models, enums, and resolvers defined in your project files.
 
