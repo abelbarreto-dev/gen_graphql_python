@@ -11,7 +11,8 @@ standard_file = """{
   "inputs": "<path-to-inputs>",
   "enums": "<path-to-enums-files>",
   "dtos": "<path-to-dtos-files>",
-  "schema_file": "<path-to-schema-file>"
+  "schema_file": "<path-to-schema-file>",
+  "mapping": "<path-to-mapping-file-py>"
 }"""
 
 json_file = "./gen.graphql.json"
@@ -23,11 +24,14 @@ class Paths(BaseModel):
     enums: str
     dtos: str
     schema_file: str
+    mapping: str
 
 
 class GenGraphQL:
     def __init__(self):
-        pass
+        self._queries = ""
+        self._mutations = ""
+        self._imports = ""
 
     def main(self) -> None:
         setup = self.setup()
@@ -88,7 +92,7 @@ class GenGraphQL:
             with open(f"{paths.resolvers}/{resolver}", "r", encoding="utf-8") as file:
                 code = file.read()
 
-            q, m = self.extract_resolvers(code)
+            q, m = self.extract_resolvers(code, resolver)
             queries += q
             mutations += m
 
@@ -99,6 +103,15 @@ class GenGraphQL:
 
         with open(paths.schema_file, "w", encoding="utf-8") as writer:
             writer.write(graphql)
+
+        mapping_file = f"{self._imports}\n"
+
+        mapping_file += (
+            "mapping_resolvers = {\n" + f"{self._queries}{self._mutations}" + "}\n"
+        )
+
+        with open(paths.mapping, "w", encoding="utf-8") as writer:
+            writer.write(mapping_file)
 
     def setup(self) -> bool:
         py_dict = json.loads(standard_file)
@@ -123,12 +136,6 @@ class GenGraphQL:
             return False
 
         return True
-
-    def get_paths(self) -> Paths:
-        with open(json_file, "r", encoding="utf-8") as file:
-            data = json.load(file)
-
-        return Paths(**data)
 
     def extract_enums(self, tree: ast.Module):
         enums = {}
@@ -196,11 +203,13 @@ class GenGraphQL:
 
         return "\n\n".join(output)
 
-    def extract_resolvers(self, code: str):
+    def extract_resolvers(self, code: str, resolver: str):
         tree = ast.parse(code)
 
         queries = []
         mutations = []
+
+        paths = self.get_paths()
 
         for node in tree.body:
             if isinstance(node, ast.AsyncFunctionDef):
@@ -216,11 +225,19 @@ class GenGraphQL:
                 gql = f"{name}({', '.join(args)}): {return_type}"
 
                 if op_type == "query":
+                    self.mapping_resolvers(name, node.name, True, paths, resolver)
                     queries.append(gql)
                 else:
+                    self.mapping_resolvers(name, node.name, False, paths, resolver)
                     mutations.append(gql)
 
         return "\n".join(q for q in queries), "\n".join(m for m in mutations)
+
+    def get_paths(self) -> Paths:
+        with open(json_file, "r", encoding="utf-8") as file:
+            data = json.load(file)
+
+        return Paths(**data)
 
     def get_operation_type(self, func: ast.FunctionDef):
         for decorator in func.decorator_list:
@@ -335,9 +352,28 @@ class GenGraphQL:
             "datetime": "DateTime",
         }.get(key, key)
 
+    def mapping_resolvers(
+        self,
+        camel_case: str,
+        original: str,
+        is_query: bool,
+        paths: Paths,
+        resolver: str,
+    ) -> None:
+        if is_query:
+            self._queries += f'    "{camel_case}": {original},\n'
+        else:
+            self._mutations += f'    "{camel_case}": {original},\n'
+
+        resolver_destiny = paths.resolvers.replace("./", "").replace("/", ".")
+
+        resolver = resolver.replace(".py", "")
+
+        self._imports += f"from {resolver_destiny}.{resolver} import {original}\n"
+
     def format_operation(self, operation: str, body: str) -> str:
         if not body.strip():
-            return ""
+            return "type Query {}"
 
         body = body.split("\n")
         body = [f"  {b}\n" for b in body]
