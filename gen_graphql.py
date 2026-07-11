@@ -373,14 +373,20 @@ class GenGraphQL:
 
     def format_operation(self, operation: str, body: str) -> str:
         if not body.strip():
-            return "type Query {}"
+            return (
+                f"type {operation} "
+                + "{\n"
+                + f"{'  health: String!\n}' if operation == 'Query' else '  _empty: String\n}'}"
+            )
 
         body = body.split("\n")
         body = [f"  {b}\n" for b in body]
         body = "".join(body)
         body = body[0:-1]
 
-        return f"type {operation} {{\n{body}\n}}"
+        for_query = "  health: String!\n" if operation == "query" else ""
+
+        return f"type {operation} {{{for_query}{body}\n}}"
 
 
 gen = GenGraphQL()
